@@ -115,7 +115,7 @@ class SpeakerControlWindow(QMainWindow):
         # Create timer for updates
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_level)
-        self.timer.start(1000)  # Update every 1000ms (1 second)
+        self.timer.start(2000)  # Update every 2000ms (2 second)
         
         # Initial update
         self.update_level()
@@ -123,7 +123,7 @@ class SpeakerControlWindow(QMainWindow):
     def scan_for_speakers(self):
         """Scan for SSC speakers with timeout"""
         timeout = 60  # seconds
-        scan_interval = 10  # seconds
+        scan_interval = 5  # seconds
         start_time = time.time()
         
         print("Scanning for SSC devices...")

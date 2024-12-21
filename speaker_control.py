@@ -35,8 +35,8 @@ class SpeakerControlWindow(QMainWindow):
         
         # Create level display
         self.level_label = QLabel("--")
-        fixed_font = QFont("Monospace")  # Use monospace font
-        fixed_font.setStyleHint(QFont.StyleHint.Monospace)  # Fallback to any monospace if specific font not found
+        fixed_font = QFont("Menlo")  # macOS system monospace font
+        fixed_font.setStyleHint(QFont.StyleHint.Monospace)  # Fallback to system monospace if Menlo not found
         self.level_label.setFont(fixed_font)
         self.level_label.setMinimumWidth(50)  # Ensure consistent width
         self.level_label.setAlignment(Qt.AlignmentFlag.AlignCenter)  # Center align the text

@@ -6,30 +6,95 @@ from pyssc.Ssc_device import Ssc_device
 from pyssc.Ssc_device_setup import Ssc_device_setup
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QLabel, QPushButton, QHBoxLayout)
-from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon, QFont
 import os
 import json
 import zeroconf
+
+class ScanThread(QThread):
+    finished = pyqtSignal(object)
+    status_update = pyqtSignal(str)
+    
+    def __init__(self, interface):
+        super().__init__()
+        self.interface = interface
+        self.running = True
+        
+    def run(self):
+        timeout = 60  # seconds
+        scan_interval = 10  # seconds
+        start_time = time.time()
+        
+        print(f"\nStarting scan with interface: {self.interface}")
+        
+        while self.running and (time.time() - start_time < timeout):
+            try:
+                print("\nAttempting scan...")
+                setup = scan()  # Removed interface parameter from scan()
+                if setup:
+                    print(f"Scan result: setup={setup}")
+                    if hasattr(setup, 'ssc_devices'):
+                        print(f"Found devices: {len(setup.ssc_devices)}")
+                        for i, device in enumerate(setup.ssc_devices):
+                            print(f"Device {i+1}: IP={device.ip}, Port={device.port}")
+                    else:
+                        print("Setup has no ssc_devices attribute")
+                
+                if setup and setup.ssc_devices:
+                    num_devices = len(setup.ssc_devices)
+                    if num_devices == 2:
+                        try:
+                            print("\nAttempting to connect to all devices...")
+                            setup.connect_all(interface=self.interface)
+                            print("Successfully connected to all devices")
+                            self.finished.emit(setup)
+                            return
+                        except Exception as e:
+                            print(f"Connection error: {str(e)}")
+                            self.status_update.emit(f"Retrying connection...")
+                    elif num_devices == 1:
+                        print("Only one speaker found, continuing search...")
+                        self.status_update.emit("Found 1 speaker...")
+                    time.sleep(scan_interval)
+                else:
+                    print("No devices found in this scan")
+                    self.status_update.emit("Searching...")
+                    time.sleep(scan_interval)
+            except Exception as e:
+                print(f"\nScan error: {str(e)}")
+                print(f"Error type: {type(e)}")
+                import traceback
+                print(f"Traceback: {traceback.format_exc()}")
+                self.status_update.emit("Retrying...")
+                time.sleep(scan_interval)
+        
+        print(f"\nScan loop ended. Time elapsed: {time.time() - start_time:.1f}s")
+        print(f"Reason: {'Timeout' if time.time() - start_time >= timeout else 'Stopped'}")
+        # If we get here, we've timed out or stopped
+        self.finished.emit(None)
+    
+    def stop(self):
+        print("Stopping scan thread...")
+        self.running = False
 
 class SpeakerControlWindow(QMainWindow):
     def __init__(self, interface='%en0'):
         super().__init__()
         self.interface = interface
         self.setWindowTitle("Speaker Control")
-        self.setFixedSize(200, 150)
+        self.setFixedSize(200, 180)  # Increased height to accommodate status label
         
         # Set up the window icon
         icon_path = os.path.join(os.path.dirname(__file__), 'icon.png')
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
         
-        # Initialize speaker setup
-        self.setup = self.scan_for_speakers()
-        if not self.setup or not self.setup.ssc_devices:
-            self.show_error_and_exit("No speakers found. Please ensure speakers are powered on and connected to the network.")
-            return
-            
+        self.setup = None
+        self.init_ui()
+        self.start_scanning()
+    
+    def init_ui(self):
         # Create central widget and layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -76,6 +141,7 @@ class SpeakerControlWindow(QMainWindow):
             }
         """)
         self.minus_button.clicked.connect(self.decrease_level)
+        self.minus_button.setEnabled(False)
         button_layout.addWidget(self.minus_button)
         
         # Add spacing between buttons
@@ -103,73 +169,47 @@ class SpeakerControlWindow(QMainWindow):
             }
         """)
         self.plus_button.clicked.connect(self.increase_level)
+        self.plus_button.setEnabled(False)
         button_layout.addWidget(self.plus_button)
         
         layout.addLayout(button_layout)
         
+        # Create status label
+        self.status_label = QLabel("")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setStyleSheet("""
+            font-size: 10px;
+            color: #666666;
+            margin: 5px;
+        """)
+        layout.addWidget(self.status_label)
+        
         # Create timer for updates
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_level)
-        self.timer.start(2000)  # Update every 2000ms (2 second)
-        
-        # Initial update
-        self.update_level()
     
-    def scan_for_speakers(self):
-        """Scan for SSC speakers with timeout"""
-        timeout = 60  # seconds
-        scan_interval = 5  # seconds
-        start_time = time.time()
+    def start_scanning(self):
+        print("\nStarting speaker scan...")
+        self.status_label.setText("Scanning for speakers...")
+        self.scan_thread = ScanThread(self.interface)
+        self.scan_thread.finished.connect(self.on_scan_complete)
+        self.scan_thread.status_update.connect(self.status_label.setText)
+        self.scan_thread.start()
+    
+    def on_scan_complete(self, setup):
+        print(f"\nScan complete. Setup: {setup}")
+        self.setup = setup
+        if not self.setup or not self.setup.ssc_devices:
+            print("No speakers found in final result")
+            self.status_label.setText("No speakers found")
+            return
         
-        print("Scanning for SSC devices...")
-        while time.time() - start_time < timeout:
-            try:
-                found_setup = scan()
-                num_devices = len(found_setup.ssc_devices)
-                
-                if num_devices == 2:
-                    print(f"\nFound {num_devices} devices:")
-                    for device in found_setup.ssc_devices:
-                        print(f"Device IP: {device.ip}")
-                        print(f"Device Port: {device.port}")
-                    print("\nScan completed in %f seconds" % (time.time() - start_time))
-                    
-                    # Try to connect to all devices
-                    try:
-                        found_setup.connect_all(interface=self.interface)
-                        print("Successfully connected to all devices")
-                        return found_setup
-                    except Exception as e:
-                        print(f"Error connecting to devices: {str(e)}")
-                        # Continue scanning if connection fails
-                        time.sleep(scan_interval)
-                        continue
-                        
-                elif num_devices == 1:
-                    print("\nFound 1 speaker, looking for second speaker...")
-                    time.sleep(scan_interval)
-                else:
-                    print("\nNo speakers found, continuing to scan...")
-                    time.sleep(scan_interval)
-            except zeroconf._exceptions.EventLoopBlocked as e:
-                print(f"Warning: Zeroconf event loop blocked ({str(e)}), retrying...")
-                time.sleep(1)  # Wait a bit before retrying
-                continue
-            except Exception as e:
-                print(f"\nError during scan: {str(e)}")
-                time.sleep(scan_interval)
-                
-        # If we get here, we've timed out
-        if 'found_setup' in locals() and found_setup.ssc_devices:
-            print("\nTimeout reached. Attempting to connect to found devices...")
-            try:
-                found_setup.connect_all(interface=self.interface)
-                print(f"Connected to {len(found_setup.ssc_devices)} device(s)")
-                return found_setup
-            except Exception as e:
-                print(f"Error connecting to devices: {str(e)}")
-                return None
-        return None
+        print(f"Successfully connected to {len(self.setup.ssc_devices)} speakers")
+        self.status_label.setText("Connected")
+        self.minus_button.setEnabled(True)
+        self.plus_button.setEnabled(True)
+        self.update_level()
+        self.timer.start(2000)  # Update every 2000ms (2 second)
     
     def __del__(self):
         """Cleanup when window is closed"""
@@ -243,10 +283,10 @@ class SpeakerControlWindow(QMainWindow):
             print(f"Error decreasing level: {e}")
     
     def closeEvent(self, event):
-        try:
-            self.setup.disconnect_all()
-        except:
-            pass
+        """Handle window close event"""
+        if hasattr(self, 'scan_thread'):
+            self.scan_thread.stop()
+            self.scan_thread.wait()
         event.accept()
 
 if __name__ == "__main__":

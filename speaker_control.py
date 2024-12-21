@@ -9,12 +9,13 @@ from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QIcon, QFont
 import os
 import json
+import zeroconf
 
 class SpeakerControlWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Speaker Control")
-        self.setFixedSize(300, 200)
+        self.setFixedSize(200, 150)
         
         # Set up the window icon
         icon_path = os.path.join(os.path.dirname(__file__), 'icon.png')
@@ -43,7 +44,7 @@ class SpeakerControlWindow(QMainWindow):
         self.level_label.setStyleSheet("""
             font-size: 36px;
             font-weight: bold;
-            margin: 20px;
+            margin: 10px;
         """)
         layout.addWidget(self.level_label)
         
@@ -56,59 +57,41 @@ class SpeakerControlWindow(QMainWindow):
         self.minus_button.setFixedSize(35, 35)  
         self.minus_button.setStyleSheet("""
             QPushButton {
-                font-size: 18px;
-                font-weight: bold;
+                font-size: 30px;
                 border-radius: 17px;
-                color: #2c3e50;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #f8f9fa,
-                    stop:1 #e9ecef);
-                border: 2px solid #ced4da;
-                margin: 2px;
+                color: black;
+                background-color: #f0f0f0;
+                border: none;
             }
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #e9ecef,
-                    stop:1 #dee2e6);
+                background-color: #e0e0e0;
             }
             QPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #dee2e6,
-                    stop:1 #ced4da);
-                margin: 3px 1px 1px 3px;
+                background-color: #d0d0d0;
             }
         """)
         self.minus_button.clicked.connect(self.decrease_level)
         button_layout.addWidget(self.minus_button)
         
         # Add spacing between buttons
-        button_layout.addSpacing(15)  
+        button_layout.addSpacing(5)  
         
         # Create increase button
         self.plus_button = QPushButton("+")
         self.plus_button.setFixedSize(35, 35)  
         self.plus_button.setStyleSheet("""
             QPushButton {
-                font-size: 18px;
-                font-weight: bold;
+                font-size: 30px;
                 border-radius: 17px;
-                color: #2c3e50;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #f8f9fa,
-                    stop:1 #e9ecef);
-                border: 2px solid #ced4da;
-                margin: 2px;
+                color: black;
+                background-color: #f0f0f0;
+                border: none;
             }
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #e9ecef,
-                    stop:1 #dee2e6);
+                background-color: #e0e0e0;
             }
             QPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #dee2e6,
-                    stop:1 #ced4da);
-                margin: 3px 1px 1px 3px;
+                background-color: #d0d0d0;
             }
         """)
         self.plus_button.clicked.connect(self.increase_level)
@@ -160,10 +143,14 @@ class SpeakerControlWindow(QMainWindow):
                 else:
                     print("\nNo speakers found, continuing to scan...")
                     time.sleep(scan_interval)
+            except zeroconf._exceptions.EventLoopBlocked as e:
+                print(f"Warning: Zeroconf event loop blocked ({str(e)}), retrying...")
+                time.sleep(1)  # Wait a bit before retrying
+                continue
             except Exception as e:
                 print(f"\nError during scan: {str(e)}")
                 time.sleep(scan_interval)
-        
+                
         # If we get here, we've timed out
         if 'found_setup' in locals() and found_setup.ssc_devices:
             print("\nTimeout reached. Attempting to connect to found devices...")
@@ -175,7 +162,12 @@ class SpeakerControlWindow(QMainWindow):
                 print(f"Error connecting to devices: {str(e)}")
                 return None
         return None
-        
+    
+    def __del__(self):
+        """Cleanup when window is closed"""
+        if hasattr(self, 'zeroconf'):
+            self.zeroconf.close()
+    
     def show_error_and_exit(self, message):
         """Show error message and exit application"""
         error_widget = QWidget()

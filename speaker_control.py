@@ -2,8 +2,10 @@ import sys
 import time
 import argparse
 import os
+import netifaces
+import subprocess
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                            QLabel, QPushButton, QHBoxLayout)
+                            QLabel, QPushButton, QHBoxLayout, QComboBox)
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon, QFont
 from pyssc.scan import scan
@@ -92,12 +94,54 @@ class ScanThread(QThread):
         print("Stopping scan thread...")
         self.running = False
 
+def get_interface_friendly_name(interface):
+    """Get friendly name for network interface on macOS"""
+    try:
+        # Get all network services
+        result = subprocess.run(['networksetup', '-listallhardwareports'], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            lines = result.stdout.split('\n')
+            current_name = None
+            for line in lines:
+                if line.startswith('Hardware Port:'):
+                    current_name = line.split(': ')[1].strip()
+                elif line.startswith('Device:') and line.split(': ')[1].strip() == interface:
+                    return current_name
+    except Exception as e:
+        print(f"Error getting friendly name: {e}")
+    return interface
+
+def get_network_interfaces():
+    """Get list of network interfaces that might have SSC speakers"""
+    interfaces = []
+    interface_names = {}  # Map of interface to friendly name
+    
+    for iface in netifaces.interfaces():
+        # Skip loopback and non-physical interfaces
+        if iface == 'lo0' or iface.startswith(('utun', 'llw', 'awdl', 'bridge')):
+            continue
+        
+        addrs = netifaces.ifaddresses(iface)
+        # Check if interface has IPv6 address and is active
+        if netifaces.AF_INET6 in addrs:
+            for addr in addrs[netifaces.AF_INET6]:
+                # Look for self-assigned IPv6 addresses
+                if addr['addr'].startswith('fe80::'):
+                    friendly_name = get_interface_friendly_name(iface)
+                    interface_names[friendly_name] = iface
+                    interfaces.append(friendly_name)
+                    break
+    
+    return interfaces or ['Ethernet'], interface_names or {'Ethernet': 'en0'}
+
 class SpeakerControlWindow(QMainWindow):
     def __init__(self, interface='%en0'):
         super().__init__()
         self.interface = interface
+        self.interface_names = {}  # Will store mapping of friendly names to interfaces
         self.setWindowTitle("Speaker Control")
-        self.setFixedSize(200, 180)  
+        self.setFixedSize(240, 180)
         
         # Set up the window icon
         icon_path = os.path.join(os.path.dirname(__file__), 'icon.png')
@@ -114,6 +158,8 @@ class SpeakerControlWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(0)  # Remove default spacing
+        layout.setContentsMargins(10, 0, 10, 5)  # Reduced bottom margin to 5px
         
         # Create level display
         self.level_label = QLabel("--")
@@ -132,6 +178,7 @@ class SpeakerControlWindow(QMainWindow):
         # Create buttons layout
         button_layout = QHBoxLayout()
         button_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        button_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins
         
         # Create decrease button
         self.minus_button = QPushButton("-")
@@ -185,8 +232,60 @@ class SpeakerControlWindow(QMainWindow):
         self.plus_button.clicked.connect(self.increase_level)
         self.plus_button.setEnabled(False)
         button_layout.addWidget(self.plus_button)
-        
         layout.addLayout(button_layout)
+        
+        # Add spacing between buttons and network selector
+        layout.addSpacing(25)  # Increased to 25px
+        
+        # Create network interface selector
+        network_layout = QHBoxLayout()
+        network_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins
+        network_label = QLabel("Network:")
+        network_label.setStyleSheet("font-size: 10px; margin-right: 5px;")
+        network_layout.addWidget(network_label)
+        
+        self.network_selector = QComboBox()
+        self.network_selector.setStyleSheet("""
+            QComboBox {
+                font-size: 10px;
+                padding: 2px 5px;
+                border: 1px solid #cccccc;
+                border-radius: 3px;
+                background-color: #f0f0f0;
+                color: #333333;
+                min-width: 80px;
+            }
+            QComboBox:hover {
+                background-color: #e0e0e0;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #ffffff;
+                color: #333333;
+                selection-background-color: #d0d0d0;
+                selection-color: #333333;
+                border: 1px solid #cccccc;
+            }
+        """)
+        interfaces, self.interface_names = get_network_interfaces()
+        self.network_selector.addItems(interfaces)
+        # Set current interface (strip % if present)
+        current_interface = self.interface.lstrip('%')
+        # Find friendly name for current interface
+        current_friendly_name = None
+        for friendly_name, iface in self.interface_names.items():
+            if iface == current_interface:
+                current_friendly_name = friendly_name
+                break
+        if current_friendly_name:
+            index = self.network_selector.findText(current_friendly_name)
+            if index >= 0:
+                self.network_selector.setCurrentIndex(index)
+        self.network_selector.currentTextChanged.connect(self.on_network_changed)
+        network_layout.addWidget(self.network_selector)
+        layout.addLayout(network_layout)
+        
+        # Add spacing between network selector and status
+        layout.addSpacing(5)  # Smaller spacing before status
         
         # Create status label
         self.status_label = QLabel("")
@@ -224,6 +323,22 @@ class SpeakerControlWindow(QMainWindow):
         self.plus_button.setEnabled(True)
         self.update_level()
         self.timer.start(2000)  
+    
+    def on_network_changed(self, new_friendly_name):
+        """Handle network interface change"""
+        new_interface = self.interface_names.get(new_friendly_name, 'en0')
+        print(f"\nSwitching to network interface: {new_friendly_name} ({new_interface})")
+        self.interface = f"%{new_interface}"
+        # Stop current scan if running
+        if hasattr(self, 'scan_thread'):
+            self.scan_thread.stop()
+            self.scan_thread.wait()
+        # Reset UI state
+        self.minus_button.setEnabled(False)
+        self.plus_button.setEnabled(False)
+        self.level_label.setText("--")
+        # Start new scan
+        self.start_scanning()
     
     def __del__(self):
         """Cleanup when window is closed"""

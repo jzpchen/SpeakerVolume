@@ -62,6 +62,10 @@ class SpeakerControlWindow(QMainWindow):
                 color: black;
                 background-color: #f0f0f0;
                 border: none;
+                padding: 0 0 3px 1px;
+                text-align: center;
+                line-height: 32px;
+                qproperty-alignment: AlignCenter;
             }
             QPushButton:hover {
                 background-color: #e0e0e0;
@@ -86,6 +90,10 @@ class SpeakerControlWindow(QMainWindow):
                 color: black;
                 background-color: #f0f0f0;
                 border: none;
+                padding: 0 0 3px 1px;
+                text-align: center;
+                line-height: 32px;
+                qproperty-alignment: AlignCenter;
             }
             QPushButton:hover {
                 background-color: #e0e0e0;

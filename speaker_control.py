@@ -6,7 +6,7 @@ from pyssc.Ssc_device_setup import Ssc_device_setup
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QLabel, QPushButton, QHBoxLayout)
 from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QFont
 import os
 import json
 
@@ -33,14 +33,18 @@ class SpeakerControlWindow(QMainWindow):
         layout = QVBoxLayout(central_widget)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        # Create level label
-        self.level_label = QLabel("Loading...")
+        # Create level display
+        self.level_label = QLabel("--")
+        fixed_font = QFont("Monospace")  # Use monospace font
+        fixed_font.setStyleHint(QFont.StyleHint.Monospace)  # Fallback to any monospace if specific font not found
+        self.level_label.setFont(fixed_font)
+        self.level_label.setMinimumWidth(50)  # Ensure consistent width
+        self.level_label.setAlignment(Qt.AlignmentFlag.AlignCenter)  # Center align the text
         self.level_label.setStyleSheet("""
             font-size: 36px;
             font-weight: bold;
             margin: 20px;
         """)
-        self.level_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.level_label)
         
         # Create buttons layout

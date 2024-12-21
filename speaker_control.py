@@ -1,5 +1,6 @@
 import sys
 import time
+import argparse
 from pyssc.scan import scan
 from pyssc.Ssc_device import Ssc_device
 from pyssc.Ssc_device_setup import Ssc_device_setup
@@ -12,8 +13,9 @@ import json
 import zeroconf
 
 class SpeakerControlWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, interface='%en0'):
         super().__init__()
+        self.interface = interface
         self.setWindowTitle("Speaker Control")
         self.setFixedSize(200, 150)
         
@@ -134,7 +136,7 @@ class SpeakerControlWindow(QMainWindow):
                     
                     # Try to connect to all devices
                     try:
-                        found_setup.connect_all(interface='%en0')
+                        found_setup.connect_all(interface=self.interface)
                         print("Successfully connected to all devices")
                         return found_setup
                     except Exception as e:
@@ -161,7 +163,7 @@ class SpeakerControlWindow(QMainWindow):
         if 'found_setup' in locals() and found_setup.ssc_devices:
             print("\nTimeout reached. Attempting to connect to found devices...")
             try:
-                found_setup.connect_all(interface='%en0')
+                found_setup.connect_all(interface=self.interface)
                 print(f"Connected to {len(found_setup.ssc_devices)} device(s)")
                 return found_setup
             except Exception as e:
@@ -190,7 +192,7 @@ class SpeakerControlWindow(QMainWindow):
             # Get level from first speaker (assuming all are synced)
             response = self.setup.ssc_devices[0].send_ssc(
                 '{"audio": {"out": {"level": null}}}',
-                interface='%en0'
+                interface=self.interface
             )
             level = float(eval(response.RX)['audio']['out']['level'])
             self.level_label.setText(f"{level:.1f}dB")
@@ -203,7 +205,7 @@ class SpeakerControlWindow(QMainWindow):
             # Get current level
             response = self.setup.ssc_devices[0].send_ssc(
                 '{"audio": {"out": {"level": null}}}',
-                interface='%en0'
+                interface=self.interface
             )
             current_level = float(eval(response.RX)['audio']['out']['level'])
             
@@ -212,7 +214,7 @@ class SpeakerControlWindow(QMainWindow):
             
             # Set new level
             command = {"audio": {"out": {"level": new_level}}}
-            self.setup.send_all(json.dumps(command), interface='%en0')
+            self.setup.send_all(json.dumps(command), interface=self.interface)
             
             # Update display immediately
             self.level_label.setText(f"{new_level:.1f}dB")
@@ -224,7 +226,7 @@ class SpeakerControlWindow(QMainWindow):
             # Get current level
             response = self.setup.ssc_devices[0].send_ssc(
                 '{"audio": {"out": {"level": null}}}',
-                interface='%en0'
+                interface=self.interface
             )
             current_level = float(eval(response.RX)['audio']['out']['level'])
             
@@ -233,7 +235,7 @@ class SpeakerControlWindow(QMainWindow):
             
             # Set new level
             command = {"audio": {"out": {"level": new_level}}}
-            self.setup.send_all(json.dumps(command), interface='%en0')
+            self.setup.send_all(json.dumps(command), interface=self.interface)
             
             # Update display immediately
             self.level_label.setText(f"{new_level:.1f}dB")
@@ -248,7 +250,15 @@ class SpeakerControlWindow(QMainWindow):
         event.accept()
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = SpeakerControlWindow()
+    parser = argparse.ArgumentParser(description='SSC Speaker Control GUI')
+    parser.add_argument('--interface', '-i', default='en0',
+                      help='Network interface to use (default: en0)')
+    args = parser.parse_args()
+    
+    # Add % prefix if not present
+    interface = f"%{args.interface}" if not args.interface.startswith('%') else args.interface
+    
+    app = QApplication(sys.argv[:1])  # Exclude our custom args from Qt
+    window = SpeakerControlWindow(interface)
     window.show()
     sys.exit(app.exec())

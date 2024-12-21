@@ -24,7 +24,13 @@ pip install -r requirements.txt
 Run the GUI application:
 ```bash
 cd SpeakerControl
-python speaker_control.py
+python speaker_control.py [--interface INTERFACE]
+```
+
+For example:
+```bash
+python speaker_control.py              # Uses default interface (en0)
+python speaker_control.py -i en1       # Uses en1 interface
 ```
 
 The application will:

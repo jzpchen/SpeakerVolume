@@ -1,19 +1,20 @@
 # SSC Speaker Control
 
-A simple GUI application to control Sennheiser SSC speakers.
+A simple GUI application to control Sennheiser SSC speakers with a clean, modern interface.
 
 ## Features
 
-- Real-time level display
-- Increment/decrement volume by 1dB steps
+- Real-time level display with dB readings
+- Precise volume control with 0.1dB resolution
+- Elegant circular +/- buttons for easy adjustment
 - Safety limits (0-90 dB)
 - Automatic device discovery
 - Multi-speaker synchronization
+- Compact window design
 
 ## Installation
 
-1. Clone the repository
-2. Install dependencies:
+1. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
@@ -22,18 +23,27 @@ pip install -r requirements.txt
 
 Run the GUI application:
 ```bash
-cd pyssc
+cd SpeakerControl
 python speaker_control.py
 ```
 
 The application will:
 1. Automatically discover SSC devices on your network
-2. Display the current level
-3. Allow adjustment via + and - buttons
+2. Display the current level in dB
+3. Allow precise adjustment via + and - buttons
 4. Keep all speakers synchronized
+5. Update readings every 2 seconds
 
 ## Requirements
 
 - Python 3.9+
-- PyQt6
+- PyQt6 ≥ 6.8.0
+- zeroconf ≥ 0.131.0
+- pyssc ≥ 0.0.2.dev7
 - Network interface with SSC speakers (default: en0)
+
+## Files
+
+- `speaker_control.py`: Main application with GUI interface
+- `scan_devices.py`: Utility script for testing device discovery
+- `requirements.txt`: Python package dependencies

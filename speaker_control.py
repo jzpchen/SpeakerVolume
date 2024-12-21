@@ -1,16 +1,16 @@
 import sys
 import time
 import argparse
-from pyssc.scan import scan
-from pyssc.Ssc_device import Ssc_device
-from pyssc.Ssc_device_setup import Ssc_device_setup
+import os
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QLabel, QPushButton, QHBoxLayout)
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon, QFont
-import os
+from pyssc.scan import scan
+from pyssc.Ssc_device import Ssc_device
+from pyssc.Ssc_device_setup import Ssc_device_setup
+import zeroconf._exceptions
 import json
-import zeroconf
 
 class ScanThread(QThread):
     finished = pyqtSignal(object)
@@ -24,6 +24,7 @@ class ScanThread(QThread):
     def run(self):
         timeout = 60  # seconds
         scan_interval = 10  # seconds
+        retry_interval = 2  # seconds for quick retries on event loop block
         start_time = time.time()
         
         print(f"\nStarting scan with interface: {self.interface}")
@@ -31,7 +32,7 @@ class ScanThread(QThread):
         while self.running and (time.time() - start_time < timeout):
             try:
                 print("\nAttempting scan...")
-                setup = scan()  # Removed interface parameter from scan()
+                setup = scan()  
                 if setup:
                     print(f"Scan result: setup={setup}")
                     if hasattr(setup, 'ssc_devices'):
@@ -53,14 +54,27 @@ class ScanThread(QThread):
                         except Exception as e:
                             print(f"Connection error: {str(e)}")
                             self.status_update.emit(f"Retrying connection...")
+                            time.sleep(scan_interval)
                     elif num_devices == 1:
                         print("Only one speaker found, continuing search...")
                         self.status_update.emit("Found 1 speaker...")
-                    time.sleep(scan_interval)
+                        time.sleep(scan_interval)
+                    else:
+                        print("No devices found in this scan")
+                        self.status_update.emit("Searching...")
+                        time.sleep(scan_interval)
                 else:
                     print("No devices found in this scan")
                     self.status_update.emit("Searching...")
                     time.sleep(scan_interval)
+                    
+            except zeroconf._exceptions.EventLoopBlocked as e:
+                print(f"\nZeroconf event loop blocked: {str(e)}")
+                print("Retrying after short delay...")
+                self.status_update.emit("Retrying scan...")
+                time.sleep(retry_interval)  # shorter retry interval for this specific error
+                continue
+                
             except Exception as e:
                 print(f"\nScan error: {str(e)}")
                 print(f"Error type: {type(e)}")
@@ -83,7 +97,7 @@ class SpeakerControlWindow(QMainWindow):
         super().__init__()
         self.interface = interface
         self.setWindowTitle("Speaker Control")
-        self.setFixedSize(200, 180)  # Increased height to accommodate status label
+        self.setFixedSize(200, 180)  
         
         # Set up the window icon
         icon_path = os.path.join(os.path.dirname(__file__), 'icon.png')
@@ -103,11 +117,11 @@ class SpeakerControlWindow(QMainWindow):
         
         # Create level display
         self.level_label = QLabel("--")
-        fixed_font = QFont("Menlo")  # macOS system monospace font
-        fixed_font.setStyleHint(QFont.StyleHint.Monospace)  # Fallback to system monospace if Menlo not found
+        fixed_font = QFont("Menlo")  
+        fixed_font.setStyleHint(QFont.StyleHint.Monospace)  
         self.level_label.setFont(fixed_font)
-        self.level_label.setMinimumWidth(50)  # Ensure consistent width
-        self.level_label.setAlignment(Qt.AlignmentFlag.AlignCenter)  # Center align the text
+        self.level_label.setMinimumWidth(50)  
+        self.level_label.setAlignment(Qt.AlignmentFlag.AlignCenter)  
         self.level_label.setStyleSheet("""
             font-size: 36px;
             font-weight: bold;
@@ -209,7 +223,7 @@ class SpeakerControlWindow(QMainWindow):
         self.minus_button.setEnabled(True)
         self.plus_button.setEnabled(True)
         self.update_level()
-        self.timer.start(2000)  # Update every 2000ms (2 second)
+        self.timer.start(2000)  
     
     def __del__(self):
         """Cleanup when window is closed"""
@@ -298,7 +312,7 @@ if __name__ == "__main__":
     # Add % prefix if not present
     interface = f"%{args.interface}" if not args.interface.startswith('%') else args.interface
     
-    app = QApplication(sys.argv[:1])  # Exclude our custom args from Qt
+    app = QApplication(sys.argv[:1])  
     window = SpeakerControlWindow(interface)
     window.show()
     sys.exit(app.exec())

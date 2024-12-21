@@ -8,7 +8,8 @@ A simple GUI application to control Sennheiser SSC speakers with a clean, modern
 - Precise volume control with 0.1dB resolution
 - Elegant circular +/- buttons for easy adjustment
 - Safety limits (0-90 dB)
-- Automatic device discovery
+- Non-blocking speaker discovery
+- Real-time status updates
 - Multi-speaker synchronization
 - Compact window design
 
@@ -34,11 +35,13 @@ python speaker_control.py -i en1       # Uses en1 interface
 ```
 
 The application will:
-1. Automatically discover SSC devices on your network
-2. Display the current level in dB
-3. Allow precise adjustment via + and - buttons
-4. Keep all speakers synchronized
-5. Update readings every 2 seconds
+1. Start immediately with a responsive interface
+2. Show scanning status while discovering speakers
+3. Automatically connect when speakers are found
+4. Display the current level in dB
+5. Allow precise adjustment via + and - buttons
+6. Keep all speakers synchronized
+7. Update readings every 2 seconds
 
 ## Requirements
 
@@ -50,6 +53,7 @@ The application will:
 
 ## Files
 
-- `speaker_control.py`: Main application with GUI interface
-- `scan_devices.py`: Utility script for testing device discovery
+- `speaker_control.py`: Main GUI application
+- `scan_devices.py`: Standalone speaker discovery utility
 - `requirements.txt`: Python package dependencies
+- `README.md`: This documentation file

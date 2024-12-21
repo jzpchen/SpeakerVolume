@@ -65,7 +65,6 @@ class SpeakerControlWindow(QMainWindow):
                 padding: 0 0 3px 1px;
                 text-align: center;
                 line-height: 32px;
-                qproperty-alignment: AlignCenter;
             }
             QPushButton:hover {
                 background-color: #e0e0e0;
@@ -93,7 +92,6 @@ class SpeakerControlWindow(QMainWindow):
                 padding: 0 0 3px 1px;
                 text-align: center;
                 line-height: 32px;
-                qproperty-alignment: AlignCenter;
             }
             QPushButton:hover {
                 background-color: #e0e0e0;
@@ -195,7 +193,7 @@ class SpeakerControlWindow(QMainWindow):
                 interface='%en0'
             )
             level = float(eval(response.RX)['audio']['out']['level'])
-            self.level_label.setText(f"{level:.1f}")
+            self.level_label.setText(f"{level:.1f}dB")
         except Exception as e:
             self.level_label.setText("Error")
             print(f"Error updating level: {e}")
@@ -217,7 +215,7 @@ class SpeakerControlWindow(QMainWindow):
             self.setup.send_all(json.dumps(command), interface='%en0')
             
             # Update display immediately
-            self.level_label.setText(f"{new_level:.1f}")
+            self.level_label.setText(f"{new_level:.1f}dB")
         except Exception as e:
             print(f"Error increasing level: {e}")
     
@@ -238,7 +236,7 @@ class SpeakerControlWindow(QMainWindow):
             self.setup.send_all(json.dumps(command), interface='%en0')
             
             # Update display immediately
-            self.level_label.setText(f"{new_level:.1f}")
+            self.level_label.setText(f"{new_level:.1f}dB")
         except Exception as e:
             print(f"Error decreasing level: {e}")
     

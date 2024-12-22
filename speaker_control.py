@@ -145,8 +145,15 @@ class SpeakerControlWindow(QMainWindow):
         
         # Set up the window icon
         icon_path = os.path.join(os.path.dirname(__file__), 'icon.png')
+        print(f"Looking for icon at: {icon_path}")
         if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+            print(f"Icon found, setting window icon")
+            app_icon = QIcon(icon_path)
+            self.setWindowIcon(app_icon)
+            # Also set the application icon
+            QApplication.instance().setWindowIcon(app_icon)
+        else:
+            print(f"Warning: Icon not found at {icon_path}")
         
         self.setup = None
         self.init_ui()

@@ -1,7 +1,7 @@
 from PIL import Image
 import os
 
-def create_icon(input_path, output_path, size=(256, 256)):
+def create_icon(input_path, output_path, size=(512, 512)):  # Increased size for better quality
     # Open the image
     with Image.open(input_path) as img:
         # Convert to RGBA if not already
@@ -23,7 +23,7 @@ def create_icon(input_path, output_path, size=(256, 256)):
         # Create a new image with transparency
         new_img = Image.new('RGBA', size, (0, 0, 0, 0))
         
-        # Resize original image
+        # Resize original image with high quality
         resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
         
         # Calculate position to center the image
@@ -33,8 +33,12 @@ def create_icon(input_path, output_path, size=(256, 256)):
         # Paste resized image onto transparent background
         new_img.paste(resized, (x, y), resized)
         
-        # Save as PNG
-        new_img.save(output_path, 'PNG')
+        # Create smaller versions for better scaling
+        sizes = [(512, 512), (256, 256), (128, 128), (64, 64), (32, 32), (16, 16)]
+        
+        # Save the main icon
+        new_img.save(output_path, 'PNG', optimize=True)
+        print(f"Created icon at {output_path} with size {size}")
 
 if __name__ == '__main__':
     input_file = 'NeumannSpeaker.png'

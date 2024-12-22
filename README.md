@@ -15,10 +15,31 @@ A simple GUI application to control Sennheiser SSC speakers with a clean, modern
 
 ## Installation
 
-1. Install dependencies:
+### For Users
+1. Download the latest release of Speaker Control
+2. Drag `Speaker Control.app` to your Applications folder
+3. Launch the app from Applications or Spotlight
+
+### For Developers
+To build the app from source:
+
+1. Clone the repository:
 ```bash
-pip install -r requirements.txt
+git clone [repository-url]
+cd SpeakerControl
 ```
+
+2. Install the required dependencies:
+```bash
+pip3 install -r requirements.txt
+```
+
+3. Build the app:
+```bash
+python3 setup.py py2app
+```
+
+4. The built app will be in the `dist` directory. You can then move `Speaker Control.app` to your Applications folder.
 
 ## Usage
 

@@ -1,18 +1,41 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import sys
-import time
-import argparse
 import os
-import netifaces
-import subprocess
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                            QLabel, QPushButton, QHBoxLayout, QComboBox)
-from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QIcon, QFont
-from pyssc.scan import scan
-from pyssc.Ssc_device import Ssc_device
-from pyssc.Ssc_device_setup import Ssc_device_setup
-import zeroconf._exceptions
-import json
+import logging
+import traceback
+
+# Set up logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(os.path.expanduser('~/speaker_control_debug.log')),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+try:
+    import time
+    import argparse
+    import netifaces
+    import subprocess
+    from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+                                QLabel, QPushButton, QHBoxLayout, QComboBox)
+    from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
+    from PyQt6.QtGui import QIcon, QFont
+    from pyssc.scan import scan
+    from pyssc.Ssc_device import Ssc_device
+    from pyssc.Ssc_device_setup import Ssc_device_setup
+    import zeroconf._exceptions
+    import json
+    logger.info("All imports successful")
+except Exception as e:
+    logger.error(f"Import error: {str(e)}")
+    logger.error(traceback.format_exc())
+    sys.exit(1)
 
 class ScanThread(QThread):
     finished = pyqtSignal(object)
@@ -22,6 +45,7 @@ class ScanThread(QThread):
         super().__init__()
         self.interface = interface
         self.running = True
+        self.logger = logging.getLogger(__name__)
         
     def run(self):
         timeout = 60  # seconds
@@ -29,69 +53,70 @@ class ScanThread(QThread):
         retry_interval = 2  # seconds for quick retries on event loop block
         start_time = time.time()
         
-        print(f"\nStarting scan with interface: {self.interface}")
+        self.logger.info(f"Starting scan with interface: {self.interface}")
         
         while self.running and (time.time() - start_time < timeout):
             try:
-                print("\nAttempting scan...")
+                self.logger.debug("Attempting scan...")
                 setup = scan()  
                 if setup:
-                    print(f"Scan result: setup={setup}")
+                    self.logger.debug(f"Scan result: setup={setup}")
                     if hasattr(setup, 'ssc_devices'):
-                        print(f"Found devices: {len(setup.ssc_devices)}")
+                        self.logger.info(f"Found devices: {len(setup.ssc_devices)}")
                         for i, device in enumerate(setup.ssc_devices):
-                            print(f"Device {i+1}: IP={device.ip}, Port={device.port}")
+                            self.logger.info(f"Device {i+1}: IP={device.ip}, Port={device.port}")
                     else:
-                        print("Setup has no ssc_devices attribute")
+                        self.logger.warning("Setup has no ssc_devices attribute")
                 
                 if setup and setup.ssc_devices:
                     num_devices = len(setup.ssc_devices)
                     if num_devices == 2:
                         try:
-                            print("\nAttempting to connect to all devices...")
+                            self.logger.info("Attempting to connect to all devices...")
                             setup.connect_all(interface=self.interface)
-                            print("Successfully connected to all devices")
+                            self.logger.info("Successfully connected to all devices")
                             self.finished.emit(setup)
                             return
                         except Exception as e:
-                            print(f"Connection error: {str(e)}")
+                            self.logger.error(f"Connection error: {str(e)}")
+                            self.logger.error(traceback.format_exc())
                             self.status_update.emit(f"Retrying connection...")
                             time.sleep(scan_interval)
                     elif num_devices == 1:
-                        print("Only one speaker found, continuing search...")
+                        self.logger.info("Only one speaker found, continuing search...")
                         self.status_update.emit("Found 1 speaker...")
                         time.sleep(scan_interval)
                     else:
-                        print("No devices found in this scan")
+                        self.logger.info("No devices found in this scan")
                         self.status_update.emit("Searching...")
                         time.sleep(scan_interval)
                 else:
-                    print("No devices found in this scan")
+                    self.logger.info("No devices found in this scan")
                     self.status_update.emit("Searching...")
                     time.sleep(scan_interval)
                     
             except zeroconf._exceptions.EventLoopBlocked as e:
-                print(f"\nZeroconf event loop blocked: {str(e)}")
-                print("Retrying after short delay...")
+                self.logger.error(f"Zeroconf event loop blocked: {str(e)}")
+                self.logger.error(traceback.format_exc())
+                self.logger.info("Retrying after short delay...")
                 self.status_update.emit("Retrying scan...")
                 time.sleep(retry_interval)  # shorter retry interval for this specific error
                 continue
                 
             except Exception as e:
-                print(f"\nScan error: {str(e)}")
-                print(f"Error type: {type(e)}")
-                import traceback
-                print(f"Traceback: {traceback.format_exc()}")
+                self.logger.error(f"Scan error: {str(e)}")
+                self.logger.error(f"Error type: {type(e)}")
+                self.logger.error(traceback.format_exc())
                 self.status_update.emit("Retrying...")
                 time.sleep(scan_interval)
         
-        print(f"\nScan loop ended. Time elapsed: {time.time() - start_time:.1f}s")
-        print(f"Reason: {'Timeout' if time.time() - start_time >= timeout else 'Stopped'}")
+        self.logger.info(f"Scan loop ended. Time elapsed: {time.time() - start_time:.1f}s")
+        self.logger.info(f"Reason: {'Timeout' if time.time() - start_time >= timeout else 'Stopped'}")
         # If we get here, we've timed out or stopped
         self.finished.emit(None)
     
     def stop(self):
-        print("Stopping scan thread...")
+        self.logger.info("Stopping scan thread...")
         self.running = False
 
 def get_interface_friendly_name(interface):
@@ -109,7 +134,7 @@ def get_interface_friendly_name(interface):
                 elif line.startswith('Device:') and line.split(': ')[1].strip() == interface:
                     return current_name
     except Exception as e:
-        print(f"Error getting friendly name: {e}")
+        logger.error(f"Error getting friendly name: {e}")
     return interface
 
 def get_network_interfaces():
@@ -144,16 +169,17 @@ class SpeakerControlWindow(QMainWindow):
         self.setFixedSize(240, 180)
         
         # Set up the window icon
-        icon_path = os.path.join(os.path.dirname(__file__), 'icon.png')
-        print(f"Looking for icon at: {icon_path}")
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(base_path, 'icon.png')
+        logger.info(f"Looking for icon at: {icon_path}")
         if os.path.exists(icon_path):
-            print(f"Icon found, setting window icon")
+            logger.info(f"Icon found, setting window icon")
             app_icon = QIcon(icon_path)
             self.setWindowIcon(app_icon)
             # Also set the application icon
             QApplication.instance().setWindowIcon(app_icon)
         else:
-            print(f"Warning: Icon not found at {icon_path}")
+            logger.warning(f"Icon not found at {icon_path}")
         
         self.setup = None
         self.init_ui()
@@ -162,11 +188,12 @@ class SpeakerControlWindow(QMainWindow):
     def init_ui(self):
         # Create central widget and layout
         central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
+        layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(0)  # Remove default spacing
         layout.setContentsMargins(10, 0, 10, 5)  # Reduced bottom margin to 5px
+        central_widget.setLayout(layout)
+        self.setCentralWidget(central_widget)
         
         # Create level display
         self.level_label = QLabel("--")
@@ -309,7 +336,7 @@ class SpeakerControlWindow(QMainWindow):
         self.timer.timeout.connect(self.update_level)
     
     def start_scanning(self):
-        print("\nStarting speaker scan...")
+        logger.info("\nStarting speaker scan...")
         self.status_label.setText("Scanning for speakers...")
         self.scan_thread = ScanThread(self.interface)
         self.scan_thread.finished.connect(self.on_scan_complete)
@@ -317,14 +344,14 @@ class SpeakerControlWindow(QMainWindow):
         self.scan_thread.start()
     
     def on_scan_complete(self, setup):
-        print(f"\nScan complete. Setup: {setup}")
+        logger.info(f"\nScan complete. Setup: {setup}")
         self.setup = setup
         if not self.setup or not self.setup.ssc_devices:
-            print("No speakers found in final result")
+            logger.info("No speakers found in final result")
             self.status_label.setText("No speakers found")
             return
         
-        print(f"Successfully connected to {len(self.setup.ssc_devices)} speakers")
+        logger.info(f"Successfully connected to {len(self.setup.ssc_devices)} speakers")
         self.status_label.setText("Connected")
         self.minus_button.setEnabled(True)
         self.plus_button.setEnabled(True)
@@ -334,7 +361,7 @@ class SpeakerControlWindow(QMainWindow):
     def on_network_changed(self, new_friendly_name):
         """Handle network interface change"""
         new_interface = self.interface_names.get(new_friendly_name, 'en0')
-        print(f"\nSwitching to network interface: {new_friendly_name} ({new_interface})")
+        logger.info(f"\nSwitching to network interface: {new_friendly_name} ({new_interface})")
         self.interface = f"%{new_interface}"
         # Stop current scan if running
         if hasattr(self, 'scan_thread'):
@@ -374,7 +401,7 @@ class SpeakerControlWindow(QMainWindow):
             self.level_label.setText(f"{level:.1f}dB")
         except Exception as e:
             self.level_label.setText("Error")
-            print(f"Error updating level: {e}")
+            logger.error(f"Error updating level: {e}")
     
     def increase_level(self):
         try:
@@ -395,7 +422,7 @@ class SpeakerControlWindow(QMainWindow):
             # Update display immediately
             self.level_label.setText(f"{new_level:.1f}dB")
         except Exception as e:
-            print(f"Error increasing level: {e}")
+            logger.error(f"Error increasing level: {e}")
     
     def decrease_level(self):
         try:
@@ -416,7 +443,7 @@ class SpeakerControlWindow(QMainWindow):
             # Update display immediately
             self.level_label.setText(f"{new_level:.1f}dB")
         except Exception as e:
-            print(f"Error decreasing level: {e}")
+            logger.error(f"Error decreasing level: {e}")
     
     def closeEvent(self, event):
         """Handle window close event"""
@@ -426,15 +453,33 @@ class SpeakerControlWindow(QMainWindow):
         event.accept()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='SSC Speaker Control GUI')
-    parser.add_argument('--interface', '-i', default='en0',
-                      help='Network interface to use (default: en0)')
-    args = parser.parse_args()
+    # Set up logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(os.path.expanduser('~/speaker_control_debug.log'))
+        ]
+    )
+    logger = logging.getLogger(__name__)
+    logger.info("Starting Speaker Control application")
     
-    # Add % prefix if not present
-    interface = f"%{args.interface}" if not args.interface.startswith('%') else args.interface
-    
-    app = QApplication(sys.argv[:1])  
-    window = SpeakerControlWindow(interface)
-    window.show()
-    sys.exit(app.exec())
+    try:
+        parser = argparse.ArgumentParser(description='SSC Speaker Control GUI')
+        parser.add_argument('--interface', '-i', default='en0',
+                          help='Network interface to use (default: en0)')
+        args = parser.parse_args()
+        
+        logger.info("Creating QApplication")
+        app = QApplication(sys.argv)
+        logger.info("Creating main window")
+        window = SpeakerControlWindow(interface=f"%{args.interface}")
+        logger.info("Showing main window")
+        window.show()
+        logger.info("Entering main event loop")
+        sys.exit(app.exec())
+    except Exception as e:
+        logger.error(f"Error in main: {str(e)}")
+        logger.error(traceback.format_exc())
+        sys.exit(1)

@@ -22,15 +22,15 @@ try:
     import argparse
     import netifaces
     import subprocess
+    import json
     from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                 QLabel, QPushButton, QHBoxLayout, QComboBox)
     from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
     from PyQt6.QtGui import QIcon, QFont
     from pyssc.scan import scan
-    from pyssc.Ssc_device import Ssc_device
-    from pyssc.Ssc_device_setup import Ssc_device_setup
+    from pyssc.ssc_device import Ssc_device
+    from pyssc.ssc_device_setup import Ssc_device_setup
     import zeroconf._exceptions
-    import json
     logger.info("All imports successful")
 except Exception as e:
     logger.error(f"Import error: {str(e)}")
@@ -49,16 +49,18 @@ class ScanThread(QThread):
         
     def run(self):
         timeout = 60  # seconds
-        scan_interval = 10  # seconds
-        retry_interval = 2  # seconds for quick retries on event loop block
+        retry_interval = 0.2  # seconds - reduced since our scan is now much faster
         start_time = time.time()
         
         self.logger.info(f"Starting scan with interface: {self.interface}")
         
         while self.running and (time.time() - start_time < timeout):
             try:
+                scan_start = time.time()
                 self.logger.debug("Attempting scan...")
-                setup = scan()  
+                setup = scan(scan_time_seconds=0.5)  # Using optimized scan with 0.5s timeout
+                scan_duration = time.time() - scan_start
+                self.logger.info(f"Scan completed in {scan_duration:.2f} seconds")
                 if setup:
                     self.logger.debug(f"Scan result: setup={setup}")
                     if hasattr(setup, 'ssc_devices'):
@@ -81,34 +83,26 @@ class ScanThread(QThread):
                             self.logger.error(f"Connection error: {str(e)}")
                             self.logger.error(traceback.format_exc())
                             self.status_update.emit(f"Retrying connection...")
-                            time.sleep(scan_interval)
                     elif num_devices == 1:
                         self.logger.info("Only one speaker found, continuing search...")
                         self.status_update.emit("Found 1 speaker...")
-                        time.sleep(scan_interval)
                     else:
                         self.logger.info("No devices found in this scan")
                         self.status_update.emit("Searching...")
-                        time.sleep(scan_interval)
                 else:
                     self.logger.info("No devices found in this scan")
                     self.status_update.emit("Searching...")
-                    time.sleep(scan_interval)
                     
             except zeroconf._exceptions.EventLoopBlocked as e:
                 self.logger.error(f"Zeroconf event loop blocked: {str(e)}")
                 self.logger.error(traceback.format_exc())
                 self.logger.info("Retrying after short delay...")
-                self.status_update.emit("Retrying scan...")
-                time.sleep(retry_interval)  # shorter retry interval for this specific error
-                continue
-                
+                time.sleep(retry_interval)  # Keep this delay as it's needed for event loop recovery
             except Exception as e:
                 self.logger.error(f"Scan error: {str(e)}")
                 self.logger.error(f"Error type: {type(e)}")
                 self.logger.error(traceback.format_exc())
                 self.status_update.emit("Retrying...")
-                time.sleep(scan_interval)
         
         self.logger.info(f"Scan loop ended. Time elapsed: {time.time() - start_time:.1f}s")
         self.logger.info(f"Reason: {'Timeout' if time.time() - start_time >= timeout else 'Stopped'}")

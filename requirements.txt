@@ -1,4 +1,4 @@
 PyQt6>=6.8.0
 zeroconf>=0.131.0
-pyssc>=0.0.2.dev7
+git+ssh://git@github.com/jzpchen/pyssc.git@feature/optimize-discovery
 netifaces>=0.11.0

@@ -1,6 +1,6 @@
-# SSC Speaker Control
+# Neumann SSC Speaker Control
 
-A simple GUI application to control Sennheiser SSC speakers with a clean, modern interface.
+A simple GUI application to control Neumann Sennheiser SSC speakers with a clean, modern interface.
 
 ## Features
 
@@ -12,6 +12,7 @@ A simple GUI application to control Sennheiser SSC speakers with a clean, modern
 - Real-time status updates
 - Multi-speaker synchronization
 - Compact window design
+- Speakers are in a self-assigned network
 
 ## Installation
 

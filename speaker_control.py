@@ -8,7 +8,7 @@ import traceback
 
 # Set up logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.ERROR,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(os.path.expanduser('~/speaker_control_debug.log')),
@@ -23,96 +23,81 @@ try:
     import netifaces
     import subprocess
     import json
+    from PyQt6 import QtWidgets, QtCore, QtGui
     from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                 QLabel, QPushButton, QHBoxLayout, QComboBox)
     from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
     from PyQt6.QtGui import QIcon, QFont
-    from pyssc.scan import scan
+    from pyssc import tracker, ssc_device, ssc_device_setup
+    from pyssc.tracker import Tracker
     from pyssc.ssc_device import Ssc_device
     from pyssc.ssc_device_setup import Ssc_device_setup
     import zeroconf._exceptions
-    logger.info("All imports successful")
 except Exception as e:
     logger.error(f"Import error: {str(e)}")
     logger.error(traceback.format_exc())
     sys.exit(1)
 
-class ScanThread(QThread):
+class TrackerThread(QThread):
     finished = pyqtSignal(object)
     status_update = pyqtSignal(str)
+    speakers_lost = pyqtSignal()  # New signal for when speakers are disconnected
     
     def __init__(self, interface):
         super().__init__()
         self.interface = interface
         self.running = True
         self.logger = logging.getLogger(__name__)
+        self.tracker = tracker.Tracker()
         
     def run(self):
-        timeout = 60  # seconds
-        retry_interval = 0.2  # seconds - reduced since our scan is now much faster
-        start_time = time.time()
-        
-        self.logger.info(f"Starting scan with interface: {self.interface}")
-        
-        while self.running and (time.time() - start_time < timeout):
-            try:
-                scan_start = time.time()
-                self.logger.debug("Attempting scan...")
-                setup = scan(scan_time_seconds=0.5)  # Using optimized scan with 0.5s timeout
-                scan_duration = time.time() - scan_start
-                self.logger.info(f"Scan completed in {scan_duration:.2f} seconds")
-                if setup:
-                    self.logger.debug(f"Scan result: setup={setup}")
-                    if hasattr(setup, 'ssc_devices'):
-                        self.logger.info(f"Found devices: {len(setup.ssc_devices)}")
-                        for i, device in enumerate(setup.ssc_devices):
-                            self.logger.info(f"Device {i+1}: IP={device.ip}, Port={device.port}")
-                    else:
-                        self.logger.warning("Setup has no ssc_devices attribute")
+        def on_devices_changed(setup):
+            if not self.running:
+                return
                 
-                if setup and setup.ssc_devices:
-                    num_devices = len(setup.ssc_devices)
-                    if num_devices == 2:
-                        try:
-                            self.logger.info("Attempting to connect to all devices...")
-                            setup.connect_all(interface=self.interface)
-                            self.logger.info("Successfully connected to all devices")
-                            self.finished.emit(setup)
-                            return
-                        except Exception as e:
-                            self.logger.error(f"Connection error: {str(e)}")
-                            self.logger.error(traceback.format_exc())
-                            self.status_update.emit(f"Retrying connection...")
-                    elif num_devices == 1:
-                        self.logger.info("Only one speaker found, continuing search...")
-                        self.status_update.emit("Found 1 speaker...")
-                    else:
-                        self.logger.info("No devices found in this scan")
-                        self.status_update.emit("Searching...")
-                else:
-                    self.logger.info("No devices found in this scan")
-                    self.status_update.emit("Searching...")
-                    
-            except zeroconf._exceptions.EventLoopBlocked as e:
-                self.logger.error(f"Zeroconf event loop blocked: {str(e)}")
-                self.logger.error(traceback.format_exc())
-                self.logger.info("Retrying after short delay...")
-                time.sleep(retry_interval)  # Keep this delay as it's needed for event loop recovery
-            except Exception as e:
-                self.logger.error(f"Scan error: {str(e)}")
-                self.logger.error(f"Error type: {type(e)}")
-                self.logger.error(traceback.format_exc())
-                self.status_update.emit("Retrying...")
+            if not setup or not setup.ssc_devices:
+                self.logger.info("No devices found")
+                self.status_update.emit("Searching...")
+                self.speakers_lost.emit()
+                return
+                
+            num_devices = len(setup.ssc_devices)
+            if num_devices == 2:
+                try:
+                    self.logger.info("Attempting to connect to all devices...")
+                    # Connect all devices with the correct interface
+                    setup.connect_all(interface=self.interface)
+                    self.logger.info("Successfully connected to all devices")
+                    self.finished.emit(setup)
+                except Exception as e:
+                    self.logger.error(f"Connection error: {str(e)}")
+                    self.logger.error(traceback.format_exc())
+                    self.status_update.emit(f"Connection failed, retrying...")
+                    self.speakers_lost.emit()
+            else:
+                self.logger.info(f"Found {num_devices} speaker{'s' if num_devices != 1 else ''}")
+                self.status_update.emit(f"Found {num_devices} speaker{'s' if num_devices != 1 else ''}...")
+                self.speakers_lost.emit()
         
-        self.logger.info(f"Scan loop ended. Time elapsed: {time.time() - start_time:.1f}s")
-        self.logger.info(f"Reason: {'Timeout' if time.time() - start_time >= timeout else 'Stopped'}")
-        # If we get here, we've timed out or stopped
-        self.finished.emit(None)
-    
+        try:
+            self.logger.info(f"Starting tracker with interface: {self.interface}")
+            self.tracker.register_callback(on_devices_changed)
+            self.tracker.start()
+            
+            # Keep thread running until stopped
+            while self.running:
+                time.sleep(0.1)
+                
+        except Exception as e:
+            self.logger.error(f"Tracker error: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            self.status_update.emit("Error occurred")
+            
     def stop(self):
-        self.logger.info("Stopping scan thread...")
         self.running = False
-
+        if hasattr(self, 'tracker'):
+            self.tracker.stop()
+    
 def get_interface_friendly_name(interface):
     """Get friendly name for network interface on macOS"""
     try:
@@ -208,10 +193,8 @@ class SpeakerControlWindow(QMainWindow):
         button_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         button_layout.setContentsMargins(0, 0, 0, 0)  # Remove margins
         
-        # Create decrease button
-        self.minus_button = QPushButton("-")
-        self.minus_button.setFixedSize(35, 35)  
-        self.minus_button.setStyleSheet("""
+        # Button style
+        button_style = """
             QPushButton {
                 font-size: 30px;
                 border-radius: 17px;
@@ -228,7 +211,17 @@ class SpeakerControlWindow(QMainWindow):
             QPushButton:pressed {
                 background-color: #d0d0d0;
             }
-        """)
+            QPushButton:disabled {
+                background-color: #f8f8f8;
+                color: #a0a0a0;
+                border-color: #e0e0e0;
+            }
+        """
+        
+        # Create decrease button
+        self.minus_button = QPushButton("-")
+        self.minus_button.setFixedSize(35, 35)  
+        self.minus_button.setStyleSheet(button_style)
         self.minus_button.clicked.connect(self.decrease_level)
         self.minus_button.setEnabled(False)
         button_layout.addWidget(self.minus_button)
@@ -239,24 +232,7 @@ class SpeakerControlWindow(QMainWindow):
         # Create increase button
         self.plus_button = QPushButton("+")
         self.plus_button.setFixedSize(35, 35)  
-        self.plus_button.setStyleSheet("""
-            QPushButton {
-                font-size: 30px;
-                border-radius: 17px;
-                color: black;
-                background-color: #f0f0f0;
-                border: none;
-                padding: 0 0 3px 1px;
-                text-align: center;
-                line-height: 32px;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-            QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-        """)
+        self.plus_button.setStyleSheet(button_style)
         self.plus_button.clicked.connect(self.increase_level)
         self.plus_button.setEnabled(False)
         button_layout.addWidget(self.plus_button)
@@ -332,9 +308,10 @@ class SpeakerControlWindow(QMainWindow):
     def start_scanning(self):
         logger.info("\nStarting speaker scan...")
         self.status_label.setText("Scanning for speakers...")
-        self.scan_thread = ScanThread(self.interface)
+        self.scan_thread = TrackerThread(self.interface)
         self.scan_thread.finished.connect(self.on_scan_complete)
         self.scan_thread.status_update.connect(self.status_label.setText)
+        self.scan_thread.speakers_lost.connect(self.on_speakers_lost)  # Connect new signal
         self.scan_thread.start()
     
     def on_scan_complete(self, setup):
@@ -345,12 +322,25 @@ class SpeakerControlWindow(QMainWindow):
             self.status_label.setText("No speakers found")
             return
         
+        # Ensure interface is set for each device
+        for device in self.setup.ssc_devices:
+            device.interface = self.interface
+            
         logger.info(f"Successfully connected to {len(self.setup.ssc_devices)} speakers")
         self.status_label.setText("Connected")
         self.minus_button.setEnabled(True)
         self.plus_button.setEnabled(True)
         self.update_level()
         self.timer.start(2000)  
+    
+    def on_speakers_lost(self):
+        """Handle when speakers are disconnected or not fully available"""
+        self.setup = None  # Clear the setup
+        self.minus_button.setEnabled(False)
+        self.plus_button.setEnabled(False)
+        self.level_label.setText("--")
+        if hasattr(self, 'timer'):
+            self.timer.stop()  # Stop the level update timer
     
     def on_network_changed(self, new_friendly_name):
         """Handle network interface change"""
@@ -370,8 +360,13 @@ class SpeakerControlWindow(QMainWindow):
     
     def __del__(self):
         """Cleanup when window is closed"""
-        if hasattr(self, 'zeroconf'):
-            self.zeroconf.close()
+        if hasattr(self, 'scan_thread'):
+            self.scan_thread.stop()
+            self.scan_thread.wait()
+        if hasattr(self, 'timer'):
+            self.timer.stop()
+        if hasattr(self, 'setup'):
+            self.setup.disconnect_all()
     
     def show_error_and_exit(self, message):
         """Show error message and exit application"""
@@ -396,6 +391,11 @@ class SpeakerControlWindow(QMainWindow):
         except Exception as e:
             self.level_label.setText("Error")
             logger.error(f"Error updating level: {e}")
+            # If there's an error, try to reconnect
+            try:
+                self.setup.connect_all(interface=self.interface)
+            except Exception as reconnect_error:
+                self.speakers_lost()
     
     def increase_level(self):
         try:
@@ -417,6 +417,11 @@ class SpeakerControlWindow(QMainWindow):
             self.level_label.setText(f"{new_level:.1f}dB")
         except Exception as e:
             logger.error(f"Error increasing level: {e}")
+            # If there's an error, try to reconnect
+            try:
+                self.setup.connect_all(interface=self.interface)
+            except Exception as reconnect_error:
+                self.speakers_lost()
     
     def decrease_level(self):
         try:
@@ -438,6 +443,11 @@ class SpeakerControlWindow(QMainWindow):
             self.level_label.setText(f"{new_level:.1f}dB")
         except Exception as e:
             logger.error(f"Error decreasing level: {e}")
+            # If there's an error, try to reconnect
+            try:
+                self.setup.connect_all(interface=self.interface)
+            except Exception as reconnect_error:
+                self.speakers_lost()
     
     def closeEvent(self, event):
         """Handle window close event"""
@@ -449,7 +459,7 @@ class SpeakerControlWindow(QMainWindow):
 if __name__ == "__main__":
     # Set up logging
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.ERROR,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(),
